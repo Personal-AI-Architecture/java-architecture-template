@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.personal-ai-architecture</groupId>
+  <artifactId>paa-java-architecture-template</artifactId>
+  <version>0.1.0</version>
+  <name>Personal AI Architecture Java Template</name>
+  <description>Java starter implementation for the Personal AI Architecture</description>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs>
+            <arg>--add-modules</arg>
+            <arg>jdk.httpserver</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>conformance-tests</id>
+            <phase>test</phase>
+            <goals><goal>java</goal></goals>
+            <configuration><mainClass>com.paa.tests.ConformanceTests</mainClass><classpathScope>test</classpathScope></configuration>
+          </execution>
+          <execution>
+            <id>integration-tests</id>
+            <phase>test</phase>
+            <goals><goal>java</goal></goals>
+            <configuration><mainClass>com.paa.tests.IntegrationTests</mainClass><classpathScope>test</classpathScope></configuration>
+          </execution>
+          <execution>
+            <id>provider-tests</id>
+            <phase>test</phase>
+            <goals><goal>java</goal></goals>
+            <configuration><mainClass>com.paa.tests.ProviderTests</mainClass><classpathScope>test</classpathScope></configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

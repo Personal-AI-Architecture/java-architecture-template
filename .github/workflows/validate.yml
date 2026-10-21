@@ -1,0 +1,25 @@
+name: Validate Java PAA template
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  paa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Checkout pinned PAA contract source
+        uses: actions/checkout@v4
+        with:
+          repository: Personal-AI-Architecture/the-architecture
+          ref: 9565154901e57f184bfdd3cef5f23dd4014e2c03
+          path: paa-source
+      - name: Run Java suite and source drift gate
+        run: sh scripts/validate.sh --source-checkout paa-source
+      - name: Run Maven build and tests
+        run: mvn -q test

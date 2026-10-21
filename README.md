@@ -1,0 +1,125 @@
+# Personal AI Architecture Java Template
+
+A small, runnable Java 17 starter for building a Personal AI Architecture (PAA)
+implementation. It demonstrates the public Gateway, Agent Loop, model-adapter,
+memory, streaming, configuration, and contract-validation boundaries in code
+you can read and replace.
+
+This is an educational and development template. It uses a deterministic mock
+adapter by default, so the demo and tests run offline. The included
+OpenAI-compatible adapter supports HTTPS and streamed responses; add your
+authentication, persistence, policy enforcement, observability, and deployment
+controls before using it with real users or data.
+
+## Quick start
+
+Requirements: JDK 17 or newer. Maven 3.9+ is recommended for the conventional
+Java build; the POSIX shell scripts remain available for a dependency-light
+native validation path.
+
+```bash
+mvn test
+sh scripts/demo.sh
+sh scripts/server.sh
+```
+
+In another terminal:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl -N -X POST http://127.0.0.1:8000/conversations/messages \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor-ID: demo-user' \
+  -H 'X-Actor-Permissions: memory:read,memory:write' \
+  -d '{"content":"Explain what PAA is."}'
+```
+
+The HTTP host uses JDK `HttpServer` and is intentionally small. Replace it with
+your chosen production framework when you need TLS, graceful shutdown, limits,
+middleware, mature JSON parsing, and deployment integration.
+
+## Validate the template
+
+Run the complete native suite from this directory:
+
+```bash
+sh scripts/validate.sh \
+  --source-checkout ../../personal-ai-architecture \
+  --shared-validator ../paa-conformance-validator/bin/paa-validate.js
+```
+
+The native checks use strict `javac -Xlint:all -Werror` compilation, contract
+hashes and source comparison, architecture-boundary checks, integration and
+conformance tests, and acceptance behavior. `pom.xml` provides the conventional
+Maven compile/test lifecycle. The shared validator additionally executes the
+commands in `paa.target.json` and detects contract drift.
+
+The included GitHub Actions workflow checks out the exact pinned PAA source and
+runs the same source-comparison gate, so contract drift is visible in CI.
+
+The template is pinned to PAA commit
+`9565154901e57f184bfdd3cef5f23dd4014e2c03`. `paa.lock.json` records that pin,
+the contract file set, and SHA-256 digests. Contracts are mirrored under
+`specs/` for the starter's local examples and vendored under
+`vendor/paa-contracts/` for reproducible validation.
+
+## PAA flow
+
+```text
+HTTP Gateway
+    -> public request validation and actor headers
+Agent Loop
+    -> provider-neutral completion request
+Model Adapter
+    -> mock by default; OpenAI-compatible HTTPS adapter also included
+SSE stream
+    -> text-delta and done events
+Memory Store
+    -> conversation and message history boundary
+```
+
+Canonical routes demonstrated by the starter:
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Local liveness check |
+| `POST` | `/conversations/messages` | Start a conversation and stream a reply |
+| `POST` | `/conversations/{id}/messages` | Continue a conversation |
+| `GET` | `/conversations` | List conversations |
+| `GET` | `/conversations/{id}` | Read conversation history |
+
+The public message shape is deliberately small: `{ "content": "..." }`.
+Actor identity and permissions arrive through `X-Actor-ID` and
+`X-Actor-Permissions`; provider selection is runtime configuration, not a public
+engine request field.
+
+## Project layout
+
+```text
+src/main/java/com/paa/types/       PAA-facing request and stream contracts
+src/main/java/com/paa/gateway/     route handling and public validation
+src/main/java/com/paa/engine/      provider-neutral Agent Loop
+src/main/java/com/paa/adapters/    mock and OpenAI-compatible adapter boundaries
+src/main/java/com/paa/memory/      replaceable memory persistence boundary
+src/main/java/com/paa/config/      runtime configuration loading
+src/main/java/com/paa/checks/      contract, boundary, and lock-in checks
+src/main/java/com/paa/             demo, server, and acceptance entry points
+src/test/java/com/paa/tests/       integration and PAA conformance tests
+pom.xml                             conventional Maven build and test lifecycle
+scripts/                            compile, test, check, and validation commands
+specs/                              local contract mirror
+vendor/                             pinned contract source used by validation
+```
+
+## Extending it
+
+1. Keep `com.paa.types` aligned with the pinned PAA contracts.
+2. Add provider protocols only under `com.paa.adapters` and normalize them into
+   `ModelStreamChunk` values.
+3. Keep authorization, policy, tool permissions, and persistence explicit at
+   the Gateway/Agent Loop boundaries.
+4. Replace the in-memory store and mock HTTP host with production components.
+5. Add tests at the Gateway, Agent Loop, adapter, and persistence boundaries.
+6. Run `sh scripts/validate.sh` and the shared validator before release.
+
+See `AGENTS.md` for the template-specific implementation rules.

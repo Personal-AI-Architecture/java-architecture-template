@@ -1,0 +1,15 @@
+{
+  "name": "java-architecture-template",
+  "language": "java",
+  "root": ".",
+  "contracts": { "lock_file": "paa.lock.json" },
+  "commands": [
+    { "name": "typecheck", "command": "mvn -q -DskipTests compile" },
+    { "name": "syntax", "command": "sh scripts/check.sh --syntax-only" },
+    { "name": "contract-checks", "command": "sh scripts/check.sh" },
+    { "name": "unit", "command": "mvn -q test" },
+    { "name": "integration", "command": "sh scripts/test.sh integration" },
+    { "name": "conformance", "command": "sh scripts/test.sh conformance" },
+    { "name": "acceptance", "command": "sh scripts/acceptance.sh" }
+  ]
+}

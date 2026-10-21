@@ -1,0 +1,4 @@
+/build/
+/target/
+/.paa-memory/
+*.class
