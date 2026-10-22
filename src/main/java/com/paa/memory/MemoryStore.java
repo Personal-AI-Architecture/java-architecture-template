@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 public final class MemoryStore {
-    public record Entry(String kind, String id, String conversationId, String role, String content) {}
+    public record Entry(String kind, String id, String conversationId, String role, Object content) {}
     private final String memoryRoot;
     private final List<Entry> entries = new ArrayList<>();
 
