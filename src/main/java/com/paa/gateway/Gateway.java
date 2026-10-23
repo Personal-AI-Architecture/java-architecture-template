@@ -49,6 +49,8 @@ public final class Gateway {
             if (type.equals("text") && !(rawPart.get("text") instanceof String)) return error(400, "invalid_request", "Invalid text part.");
             if ((type.equals("image") || type.equals("file")) && !(rawPart.get("url") instanceof String)) return error(400, "invalid_request", "Invalid media part.");
             if (!List.of("text", "image", "file").contains(type)) return error(400, "invalid_request", "Invalid content part type.");
+            List<String> allowed = type.equals("text") ? List.of("type", "text", "extensions") : List.of("type", "url", "name", "mime_type", "extensions");
+            if (rawPart.keySet().stream().anyMatch(key -> !allowed.contains(key)) || (rawPart.containsKey("extensions") && !(rawPart.get("extensions") instanceof Map<?, ?>))) return error(400, "invalid_request", "Invalid content part fields.");
             Map<String, Object> part = new LinkedHashMap<>(); rawPart.forEach((key, value) -> part.put(String.valueOf(key), value)); parts.add(part);
         }
         if (requestBody.containsKey("metadata") && !(requestBody.get("metadata") instanceof Map<?, ?>)) return error(400, "invalid_request", "Metadata must be an object.");

@@ -21,6 +21,7 @@ public final class AgentLoop {
     public Map<String, Map<String, Integer>> contextLimits() { return contextLimits; }
     public List<ToolDefinition> tools() { return tools; }
     public List<StreamEvent> run(EngineRequest request) {
+        if (request.authContext().keySet().stream().anyMatch(key -> !List.of("actor", "authentication_id", "authenticated_at", "expires_at", "correlation_id").contains(key))) return List.of(error("auth_error", "Authentication context was rejected."));
         if (request.metadata().correlationId().isBlank()) return List.of(error("provider_error", "Missing correlation_id."));
         Object actor = request.authContext().get("actor");
         if (!(actor instanceof Map<?, ?> identity) || !(identity.get("id") instanceof String id) || id.isBlank() || !request.metadata().correlationId().equals(request.authContext().get("correlation_id"))) return List.of(error("unauthorized", "Missing authenticated actor context."));
@@ -41,10 +42,17 @@ public final class AgentLoop {
         List<StreamEvent> events = new ArrayList<>();
         for (ModelStreamChunk chunk : chunks) {
             if (chunk.type().equals("text-delta") && chunk.delta().get("content") instanceof String text && !text.isEmpty()) events.add(new StreamEvent("text-delta", Map.of("content", text)));
-            else if (List.of("tool-call", "tool-result", "error").contains(chunk.type())) events.add(new StreamEvent(chunk.type(), chunk.delta()));
+            else if (List.of("tool-call", "tool-result").contains(chunk.type())) events.add(new StreamEvent(chunk.type(), chunk.delta()));
+            else if (chunk.type().equals("error")) { events.add(new StreamEvent("error", safeModelError(chunk.delta()))); break; }
             else if (chunk.type().equals("done")) { Map<String, Object> data = new HashMap<>(chunk.delta()); data.putIfAbsent("finish_reason", "stop"); events.add(new StreamEvent("done", data)); }
         }
         return events;
     }
     private static StreamEvent error(String code, String message) { return new StreamEvent("error", Map.of("code", code, "message", message == null ? "Provider error." : message)); }
+    private static Map<String, Object> safeModelError(Map<String, Object> delta) {
+        Object code = delta.get("code");
+        if ("model_unavailable".equals(code)) return Map.of("code", "model_unavailable", "message", "The selected model is unavailable through the selected provider.");
+        if ("capability_unsupported".equals(code) && delta.get("capability") instanceof String capability && capability.matches("[A-Za-z][A-Za-z0-9_.-]{0,63}")) return Map.of("code", "capability_unsupported", "capability", capability, "message", "The selected model does not support the requested capability.");
+        return Map.of("code", "provider_error", "message", "Model provider failed.");
+    }
 }

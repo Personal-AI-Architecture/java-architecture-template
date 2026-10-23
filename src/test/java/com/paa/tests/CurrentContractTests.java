@@ -10,6 +10,7 @@ import com.paa.types.EngineRequestMetadata;
 import com.paa.types.Message;
 import com.paa.types.ModelAdapter;
 import com.paa.types.ModelStreamChunk;
+import com.paa.types.ToolDefinition;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,11 @@ public final class CurrentContractTests {
         summaryLoop.run(new EngineRequest(original, new EngineRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr"), Map.of("source", "gateway", "method", "deterministic", "omitted_turn_count", 1, "text", "older fact")));
         require(original.size() == 1 && summaryAdapter.requests.get(0).messages().size() == 2, "derived summary altered saved messages");
         require(String.valueOf(summaryAdapter.requests.get(0).messages().get(0).content().get(0).get("text")).contains("Gateway-derived context"), "derived summary was not labelled");
+        Map<?, ?> futureTool = (Map<?, ?>) Json.parse("{\"name\":\"read\",\"description\":\"Read\",\"parameters\":{},\"source\":{\"id\":\"service-1\",\"kind\":\"future-protocol\"},\"visibility\":\"always-send\",\"extensions\":{\"future\":\"ignored\"}}");
+        ToolDefinition definition = ToolDefinition.fromCanonical(futureTool);
+        require(definition.source().get("id").equals("service-1") && definition.source().get("kind").equals("future-protocol"), "new source label or identity was lost");
+        var rejected = new AgentLoop(new RecordingAdapter(), List.of()).run(new EngineRequest(List.of(), new EngineRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr", "unexpected", "spoof"), null));
+        require(rejected.size() == 1 && "auth_error".equals(rejected.get(0).data().get("code")), "unknown auth context field was accepted");
         System.out.println("Current contract tests passed.");
     }
 }

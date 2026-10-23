@@ -16,7 +16,23 @@ public final class ProviderTests {
     public static void main(String[] args) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/chat/completions", exchange -> { if (!exchange.getRequestMethod().equals("POST")) throw new AssertionError("provider request was not POST"); String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8); if (!request.contains("\"stream\":true")) throw new AssertionError("provider request did not request streaming"); byte[] body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8); exchange.getResponseHeaders().set("Content-Type", "text/event-stream"); exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close(); }); server.start();
-        try { OpenAiCompatibleAdapter adapter = new OpenAiCompatibleAdapter("http://127.0.0.1:" + server.getAddress().getPort(), "test-key"); List<ModelStreamChunk> chunks = adapter.stream(new CompletionRequest(List.of(new Message("user", "hello")), List.of(), true, "test-model", "local", 0, 0)); if (chunks.size() != 2 || !chunks.get(0).delta().get("content").equals("ok") || !chunks.get(1).delta().get("finish_reason").equals("stop")) throw new AssertionError("provider SSE was not normalized"); testProfileRouting(server); System.out.println("Provider adapter tests passed."); } finally { server.stop(0); }
+        try { OpenAiCompatibleAdapter adapter = new OpenAiCompatibleAdapter("http://127.0.0.1:" + server.getAddress().getPort(), "test-key"); List<ModelStreamChunk> chunks = adapter.stream(new CompletionRequest(List.of(new Message("user", "hello")), List.of(), true, "test-model", "local", 0, 0)); if (chunks.size() != 2 || !chunks.get(0).delta().get("content").equals("ok") || !chunks.get(1).delta().get("finish_reason").equals("stop")) throw new AssertionError("provider SSE was not normalized"); testProfileRouting(server); testModelFailures(); System.out.println("Provider adapter tests passed."); } finally { server.stop(0); }
+    }
+    private static void testModelFailures() throws Exception {
+        for (String code : List.of("model_not_found", "unsupported_capability")) {
+            HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.createContext("/chat/completions", exchange -> {
+                byte[] body = ("{\"error\":{\"code\":\"" + code + "\",\"capability\":\"image_input\",\"message\":\"secret=/tmp/key\"}}").getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(400, body.length); exchange.getResponseBody().write(body); exchange.close();
+            });
+            server.start();
+            try {
+                OpenAiCompatibleAdapter adapter = new OpenAiCompatibleAdapter("http://127.0.0.1:" + server.getAddress().getPort(), "test-key");
+                List<ModelStreamChunk> chunks = adapter.stream(new CompletionRequest(List.of(new Message("user", "hello")), List.of(), true, "m", "local", 0, 0));
+                String expected = code.equals("model_not_found") ? "model_unavailable" : "capability_unsupported";
+                if (chunks.size() != 1 || !expected.equals(chunks.get(0).delta().get("code")) || chunks.get(0).delta().containsKey("message")) throw new AssertionError("provider failure was not normalized");
+            } finally { server.stop(0); }
+        }
     }
     private static void testProfileRouting(HttpServer alpha) throws Exception {
         HttpServer beta = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

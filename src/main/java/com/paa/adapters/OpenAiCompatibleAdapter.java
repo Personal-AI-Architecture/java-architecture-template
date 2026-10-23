@@ -42,7 +42,21 @@ public final class OpenAiCompatibleAdapter implements ModelAdapter {
         if (selectedBaseUrl.isBlank()) throw new IllegalStateException("Selected provider profile has no base URL.");
         String selectedModel = request.model(); List<Map<String, Object>> messages = request.messages().stream().map(OpenAiCompatibleAdapter::providerMessage).toList(); String payload = Json.stringify(Map.of("model", selectedModel, "messages", messages, "stream", true));
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(selectedBaseUrl.replaceAll("/+$", "") + "/chat/completions")).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(payload)); if (!selectedKey.isBlank()) builder.header("Authorization", "Bearer " + selectedKey);
-        try { HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("provider returned HTTP " + response.statusCode()); return parseStream(response.body()); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException("provider request interrupted", error); } catch (java.io.IOException error) { throw new IllegalStateException("provider request failed", error); }
+        try { HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() < 200 || response.statusCode() >= 300) return List.of(new ModelStreamChunk("error", normalizedFailure(response.body()))); return parseStream(response.body()); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException("provider request interrupted", error); } catch (java.io.IOException error) { throw new IllegalStateException("provider request failed", error); }
+    }
+    private static Map<String, Object> normalizedFailure(String body) {
+        Object parsed;
+        try { parsed = Json.parse(body); } catch (IllegalArgumentException error) { return Map.of("code", "provider_error"); }
+        if (!(parsed instanceof Map<?, ?> root)) return Map.of("code", "provider_error");
+        Object nested = root.get("error");
+        Map<?, ?> failure = nested instanceof Map<?, ?> details ? details : root;
+        Object code = failure.containsKey("code") ? failure.get("code") : failure.get("type");
+        if ("model_not_found".equals(code) || "model_unavailable".equals(code)) return Map.of("code", "model_unavailable");
+        if ("unsupported_capability".equals(code) || "capability_unsupported".equals(code)) {
+            Object capability = failure.containsKey("capability") ? failure.get("capability") : failure.get("param");
+            if (capability instanceof String name && name.matches("[A-Za-z][A-Za-z0-9_.-]{0,63}")) return Map.of("code", "capability_unsupported", "capability", name);
+        }
+        return Map.of("code", "provider_error");
     }
     private static Map<String, Object> providerMessage(Message message) { Map<String, Object> result = new LinkedHashMap<>(); result.put("role", message.role()); result.put("content", message.content()); if (!message.toolCallId().isBlank()) result.put("tool_call_id", message.toolCallId()); return result; }
     private static List<ModelStreamChunk> parseStream(String body) { List<ModelStreamChunk> chunks = new ArrayList<>(); for (String line : body.split("\\R")) { String data = line.trim().startsWith("data:") ? line.trim().substring(5).trim() : ""; if (data.isBlank() || data.equals("[DONE]")) continue; String content = Json.stringField(data, "content"); if (!content.isBlank()) chunks.add(new ModelStreamChunk("text-delta", Map.of("content", content))); String reason = Json.stringField(data, "finish_reason"); if (!reason.isBlank()) chunks.add(new ModelStreamChunk("done", Map.of("finish_reason", reason))); } return chunks; }
