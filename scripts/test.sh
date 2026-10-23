@@ -5,3 +5,4 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 java -cp "$ROOT/build/classes" com.paa.tests.ConformanceTests
 java -cp "$ROOT/build/classes" com.paa.tests.IntegrationTests
 java -cp "$ROOT/build/classes" com.paa.tests.ProviderTests
+java -cp "$ROOT/build/classes" com.paa.tests.CurrentContractTests
