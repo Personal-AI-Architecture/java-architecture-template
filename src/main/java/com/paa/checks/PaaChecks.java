@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 public final class PaaChecks {
-    private static final String COMMIT = "aa0ff01757306b2b3aa1015bb4366a5a578d5102";
+    private static final String COMMIT = "cfeb96df743feee91afc80ac81f0c4fd9a62c123";
     private static final List<String> CONTRACTS = List.of("contracts/openapi/gateway-api.yaml", "contracts/openapi/gateway-engine.yaml", "contracts/openapi/model-api.yaml", "contracts/schemas/configuration.json", "contracts/schemas/identity.json", "contracts/schemas/message.json", "contracts/schemas/policy.json", "contracts/schemas/tool-definition.json", "contracts/schemas/auth-context.json", "contracts/schemas/authentication-result.json", "contracts/schemas/authorization-request.json", "contracts/schemas/authorization-result.json", "contracts/schemas/approval-request.json", "contracts/schemas/approval-decision.json", "contracts/schemas/audit-record.json");
     private PaaChecks() {}
     public static void main(String[] args) { Path source = null; for (int index = 0; index < args.length - 1; index++) if (args[index].equals("--source-checkout")) source = Path.of(args[index + 1]); List<String> errors = run(Path.of("."), source); if (errors.isEmpty()) System.out.println("Java PAA checks passed."); else { System.err.println("Java PAA checks failed:"); errors.forEach(error -> System.err.println("- " + error)); System.exit(1); } }
