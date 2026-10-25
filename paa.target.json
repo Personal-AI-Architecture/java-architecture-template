@@ -2,7 +2,7 @@
   "name": "java-architecture-template",
   "language": "java",
   "root": ".",
-  "live": { "start": "sh scripts/server.sh $PAA_HOST $PAA_PORT" },
+  "live": { "start": "sh scripts/server.sh $PAA_HOST $PAA_PORT", "preference_path": "/owner/preferences" },
   "contracts": { "lock_file": "paa.lock.json" },
   "commands": [
     { "name": "typecheck", "command": "mvn -q -DskipTests compile" },
