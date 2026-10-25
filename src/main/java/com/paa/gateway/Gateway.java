@@ -31,6 +31,7 @@ public final class Gateway {
     private final MemoryStore memory;
     private final Supplier<String> currentModel;
     private final Supplier<String> currentProvider;
+    private Supplier<MemoryStore.Preferences> currentSelection;
     private final Map<String, Conversation> conversations = new LinkedHashMap<>();
     private Path persistenceFile;
 
@@ -80,6 +81,7 @@ public final class Gateway {
     public Gateway(AgentLoop engine, MemoryStore memory) { this(engine, memory, () -> "mock", () -> "local"); }
     public Gateway(AgentLoop engine, MemoryStore memory, Supplier<String> currentModel) { this(engine, memory, currentModel, () -> "local"); }
     public Gateway(AgentLoop engine, MemoryStore memory, Supplier<String> currentModel, Supplier<String> currentProvider) { this.engine = engine; this.memory = memory == null ? new MemoryStore(".paa-memory") : memory; this.currentModel = currentModel; this.currentProvider = currentProvider; }
+    public void setCurrentSelection(Supplier<MemoryStore.Preferences> selection) { this.currentSelection = selection; }
     public synchronized Response handle(String method, String path, String body, Map<String, String> headers) {
         String route = path.split("\\?", 2)[0];
         if (method.equalsIgnoreCase("GET") && route.equals("/health")) return json(200, "{\"status\":\"ok\",\"architecture\":\"PAA\"}");
@@ -110,6 +112,18 @@ public final class Gateway {
         if (requestBody.get("metadata") instanceof Map<?, ?> rawMetadata) rawMetadata.forEach((key, value) -> metadata.put(String.valueOf(key), value));
         String actor = header(headers, "X-Actor-ID"), permissions = header(headers, "X-Actor-Permissions");
         if (actor.isBlank() || permissions.isBlank()) return error(401, "missing_actor_headers", "Missing required actor headers.");
+        String model, provider;
+        try {
+            if (currentSelection == null) { model = currentModel.get(); provider = currentProvider.get(); }
+            else {
+                MemoryStore.Preferences preference = currentSelection.get();
+                if (preference == null) throw new IllegalStateException("Preferences unavailable");
+                model = preference.model(); provider = preference.activeProviderProfile();
+            }
+            if (model == null || model.isBlank() || provider == null || provider.isBlank()) throw new IllegalStateException("Preferences unavailable");
+        } catch (RuntimeException error) { return error(503, "selection_unavailable", "Current model and provider preferences are unavailable."); }
+        int limit = ContextBudget.limit(engine.contextLimits(), provider, model);
+        if (limit <= 0) return error(503, "context_limit_unknown", "No safe context limit for selected provider and model.");
         String conversationId = requestedId.isBlank() ? id("conv") : requestedId;
         Conversation conversation = conversations.get(conversationId);
         if (!requestedId.isBlank() && conversation == null) return error(404, "conversation_not_found", "Conversation was not found.");
@@ -119,9 +133,6 @@ public final class Gateway {
         Map<String, Object> identity = Map.of("id", actor, "type", "owner", "display_name", actor, "status", "active", "created", timestamp());
         Map<String, Object> authContext = Map.of("actor", identity, "authentication_id", id("authn"), "authenticated_at", timestamp(), "correlation_id", correlation);
         List<Message> messages = conversation.messages.stream().map(StoredMessage::message).toList();
-        String model = currentModel.get(), provider = currentProvider.get();
-        int limit = ContextBudget.limit(engine.contextLimits(), provider, model);
-        if (limit <= 0) return error(503, "context_limit_unknown", "No safe context limit for selected provider and model.");
         ContextBudget.Selection selection = ContextBudget.selectCompleteTurns(messages, engine.tools(), limit);
         if (selection == null) return error(422, "context_overflow", "Current message exceeds the selected model context window.");
         EngineRequest request = new EngineRequest(selection.messages(), new EngineRequestMetadata(correlation, conversationId, "message", metadata), model, provider, authContext, null);
