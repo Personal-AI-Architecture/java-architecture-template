@@ -1,8 +1,8 @@
-package com.paa.engine;
+package com.paa.agentloop;
 
 import com.paa.types.CompletionRequest;
 import com.paa.types.ContextBudget;
-import com.paa.types.EngineRequest;
+import com.paa.types.AgentLoopRequest;
 import com.paa.types.ModelAdapter;
 import com.paa.types.ModelStreamChunk;
 import com.paa.types.StreamEvent;
@@ -20,7 +20,7 @@ public final class AgentLoop {
     public void setContextLimits(Map<String, Map<String, Integer>> limits) { this.contextLimits = Map.copyOf(limits); }
     public Map<String, Map<String, Integer>> contextLimits() { return contextLimits; }
     public List<ToolDefinition> tools() { return tools; }
-    public List<StreamEvent> run(EngineRequest request) {
+    public List<StreamEvent> run(AgentLoopRequest request) {
         if (request.authContext().keySet().stream().anyMatch(key -> !List.of("actor", "authentication_id", "authenticated_at", "expires_at", "correlation_id").contains(key))) return List.of(error("auth_error", "Authentication context was rejected."));
         if (request.metadata().correlationId().isBlank()) return List.of(error("provider_error", "Missing correlation_id."));
         Object actor = request.authContext().get("actor");

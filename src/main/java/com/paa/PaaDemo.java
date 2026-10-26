@@ -2,7 +2,7 @@ package com.paa;
 
 import com.paa.adapters.AdapterLoader;
 import com.paa.adapters.OpenAiCompatibleAdapter;
-import com.paa.engine.AgentLoop;
+import com.paa.agentloop.AgentLoop;
 import com.paa.gateway.Gateway;
 import com.paa.types.StreamEvent;
 import java.util.LinkedHashMap;

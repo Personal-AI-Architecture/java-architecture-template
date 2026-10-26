@@ -1,12 +1,12 @@
 package com.paa.tests;
 
-import com.paa.engine.AgentLoop;
+import com.paa.agentloop.AgentLoop;
 import com.paa.gateway.Gateway;
 import com.paa.gateway.Json;
 import com.paa.types.CompletionRequest;
 import com.paa.types.ContextBudget;
-import com.paa.types.EngineRequest;
-import com.paa.types.EngineRequestMetadata;
+import com.paa.types.AgentLoopRequest;
+import com.paa.types.AgentLoopRequestMetadata;
 import com.paa.types.Message;
 import com.paa.types.ModelAdapter;
 import com.paa.types.ModelStreamChunk;
@@ -63,13 +63,13 @@ public final class CurrentContractTests {
         RecordingAdapter summaryAdapter = new RecordingAdapter();
         AgentLoop summaryLoop = new AgentLoop(summaryAdapter, List.of());
         List<Message> original = List.of(new Message("user", "current"));
-        summaryLoop.run(new EngineRequest(original, new EngineRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr"), Map.of("source", "gateway", "method", "deterministic", "omitted_turn_count", 1, "text", "older fact")));
+        summaryLoop.run(new AgentLoopRequest(original, new AgentLoopRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr"), Map.of("source", "gateway", "method", "deterministic", "omitted_turn_count", 1, "text", "older fact")));
         require(original.size() == 1 && summaryAdapter.requests.get(0).messages().size() == 2, "derived summary altered saved messages");
         require(String.valueOf(summaryAdapter.requests.get(0).messages().get(0).content().get(0).get("text")).contains("Gateway-derived context"), "derived summary was not labelled");
         Map<?, ?> futureTool = (Map<?, ?>) Json.parse("{\"name\":\"read\",\"description\":\"Read\",\"parameters\":{},\"source\":{\"id\":\"service-1\",\"kind\":\"future-protocol\"},\"visibility\":\"always-send\",\"extensions\":{\"future\":\"ignored\"}}");
         ToolDefinition definition = ToolDefinition.fromCanonical(futureTool);
         require(definition.source().get("id").equals("service-1") && definition.source().get("kind").equals("future-protocol"), "new source label or identity was lost");
-        var rejected = new AgentLoop(new RecordingAdapter(), List.of()).run(new EngineRequest(List.of(), new EngineRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr", "unexpected", "spoof"), null));
+        var rejected = new AgentLoop(new RecordingAdapter(), List.of()).run(new AgentLoopRequest(List.of(), new AgentLoopRequestMetadata("corr", "", "message", Map.of()), "mock", "local", Map.of("actor", Map.of("id", "owner"), "correlation_id", "corr", "unexpected", "spoof"), null));
         require(rejected.size() == 1 && "auth_error".equals(rejected.get(0).data().get("code")), "unknown auth context field was accepted");
         System.out.println("Current contract tests passed.");
     }
