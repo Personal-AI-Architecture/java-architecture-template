@@ -1,7 +1,7 @@
 package com.paa.tests;
 
 import com.paa.adapters.MockAdapter;
-import com.paa.engine.AgentLoop;
+import com.paa.agentloop.AgentLoop;
 import com.paa.gateway.Gateway;
 import com.paa.gateway.Json;
 import com.paa.types.CompletionRequest;

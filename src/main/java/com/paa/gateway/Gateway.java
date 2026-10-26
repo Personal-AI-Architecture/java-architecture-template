@@ -1,10 +1,10 @@
 package com.paa.gateway;
 
-import com.paa.engine.AgentLoop;
+import com.paa.agentloop.AgentLoop;
 import com.paa.memory.MemoryStore;
-import com.paa.types.EngineRequest;
+import com.paa.types.AgentLoopRequest;
 import com.paa.types.ContextBudget;
-import com.paa.types.EngineRequestMetadata;
+import com.paa.types.AgentLoopRequestMetadata;
 import com.paa.types.Message;
 import com.paa.types.StreamEvent;
 import java.util.ArrayList;
@@ -27,7 +27,7 @@ public final class Gateway {
     private record StoredMessage(String id, Message message, String createdAt, String model, String provider) {}
     private static final class Conversation { private final String id; private final String createdAt; private String updatedAt; private final List<StoredMessage> messages = new ArrayList<>(); private Conversation(String id, String now) { this.id = id; this.createdAt = now; this.updatedAt = now; } }
     private static final AtomicLong IDS = new AtomicLong();
-    private final AgentLoop engine;
+    private final AgentLoop agentLoop;
     private final MemoryStore memory;
     private final Supplier<String> currentModel;
     private final Supplier<String> currentProvider;
@@ -78,9 +78,9 @@ public final class Gateway {
         Files.move(temporary, persistenceFile, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    public Gateway(AgentLoop engine, MemoryStore memory) { this(engine, memory, () -> "mock", () -> "local"); }
-    public Gateway(AgentLoop engine, MemoryStore memory, Supplier<String> currentModel) { this(engine, memory, currentModel, () -> "local"); }
-    public Gateway(AgentLoop engine, MemoryStore memory, Supplier<String> currentModel, Supplier<String> currentProvider) { this.engine = engine; this.memory = memory == null ? new MemoryStore(".paa-memory") : memory; this.currentModel = currentModel; this.currentProvider = currentProvider; }
+    public Gateway(AgentLoop agentLoop, MemoryStore memory) { this(agentLoop, memory, () -> "mock", () -> "local"); }
+    public Gateway(AgentLoop agentLoop, MemoryStore memory, Supplier<String> currentModel) { this(agentLoop, memory, currentModel, () -> "local"); }
+    public Gateway(AgentLoop agentLoop, MemoryStore memory, Supplier<String> currentModel, Supplier<String> currentProvider) { this.agentLoop = agentLoop; this.memory = memory == null ? new MemoryStore(".paa-memory") : memory; this.currentModel = currentModel; this.currentProvider = currentProvider; }
     public void setCurrentSelection(Supplier<MemoryStore.Preferences> selection) { this.currentSelection = selection; }
     public synchronized Response handle(String method, String path, String body, Map<String, String> headers) {
         String route = path.split("\\?", 2)[0];
@@ -122,7 +122,7 @@ public final class Gateway {
             }
             if (model == null || model.isBlank() || provider == null || provider.isBlank()) throw new IllegalStateException("Preferences unavailable");
         } catch (RuntimeException error) { return error(503, "selection_unavailable", "Current model and provider preferences are unavailable."); }
-        int limit = ContextBudget.limit(engine.contextLimits(), provider, model);
+        int limit = ContextBudget.limit(agentLoop.contextLimits(), provider, model);
         if (limit <= 0) return error(503, "context_limit_unknown", "No safe context limit for selected provider and model.");
         String conversationId = requestedId.isBlank() ? id("conv") : requestedId;
         Conversation conversation = conversations.get(conversationId);
@@ -133,10 +133,10 @@ public final class Gateway {
         Map<String, Object> identity = Map.of("id", actor, "type", "owner", "display_name", actor, "status", "active", "created", timestamp());
         Map<String, Object> authContext = Map.of("actor", identity, "authentication_id", id("authn"), "authenticated_at", timestamp(), "correlation_id", correlation);
         List<Message> messages = conversation.messages.stream().map(StoredMessage::message).toList();
-        ContextBudget.Selection selection = ContextBudget.selectCompleteTurns(messages, engine.tools(), limit);
+        ContextBudget.Selection selection = ContextBudget.selectCompleteTurns(messages, agentLoop.tools(), limit);
         if (selection == null) return error(422, "context_overflow", "Current message exceeds the selected model context window.");
-        EngineRequest request = new EngineRequest(selection.messages(), new EngineRequestMetadata(correlation, conversationId, "message", metadata), model, provider, authContext, null);
-        List<StreamEvent> stream = new ArrayList<>(engine.run(request));
+        AgentLoopRequest request = new AgentLoopRequest(selection.messages(), new AgentLoopRequestMetadata(correlation, conversationId, "message", metadata), model, provider, authContext, null);
+        List<StreamEvent> stream = new ArrayList<>(agentLoop.run(request));
         if (selection.omittedTurns() > 0) stream.add(0, new StreamEvent("context_notice", Map.of("_event_type", "context_notice", "action", "omitted", "omitted_turn_count", selection.omittedTurns(), "message", "Older conversation turns were omitted from this reply's working context.")));
         StringBuilder text = new StringBuilder();
         for (int index = 0; index < stream.size(); index++) {

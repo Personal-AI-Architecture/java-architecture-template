@@ -4,7 +4,7 @@ import com.paa.adapters.AdapterLoader;
 import com.paa.adapters.MockAdapter;
 import com.paa.adapters.OpenAiCompatibleAdapter;
 import com.paa.config.RuntimeConfiguration;
-import com.paa.engine.AgentLoop;
+import com.paa.agentloop.AgentLoop;
 import com.paa.gateway.Gateway;
 import com.paa.memory.MemoryStore;
 import java.nio.file.Path;
