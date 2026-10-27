@@ -6,6 +6,7 @@ import com.paa.types.AgentLoopRequest;
 import com.paa.types.ContextBudget;
 import com.paa.types.AgentLoopRequestMetadata;
 import com.paa.types.Message;
+import com.paa.types.ToolCall;
 import com.paa.types.StreamEvent;
 import java.util.ArrayList;
 import java.net.URLDecoder;
@@ -56,7 +57,15 @@ public final class Gateway {
                     rawPart.forEach((key, field) -> fields.put(String.valueOf(key), field));
                     content.add(fields);
                 }
-                conversation.messages.add(new StoredMessage(String.valueOf(entry.get("id")), new Message(String.valueOf(entry.get("role")), content),
+                List<ToolCall> toolCalls = new ArrayList<>();
+                if (entry.get("tool_calls") instanceof List<?> rawCalls) for (Object rawCall : rawCalls) if (rawCall instanceof Map<?, ?> call) {
+                    Map<String, Object> arguments = new LinkedHashMap<>();
+                    if (call.get("arguments") instanceof Map<?, ?> rawArguments) rawArguments.forEach((key, fieldValue) -> arguments.put(String.valueOf(key), fieldValue));
+                    Object source = call.containsKey("source_id") ? call.get("source_id") : "internal";
+                    toolCalls.add(new ToolCall(String.valueOf(call.get("id")), String.valueOf(source), String.valueOf(call.get("name")), arguments, Boolean.TRUE.equals(call.get("invalid_arguments"))));
+                }
+                String toolCallId = entry.get("tool_call_id") instanceof String toolCallValue ? toolCallValue : "";
+                conversation.messages.add(new StoredMessage(String.valueOf(entry.get("id")), new Message(String.valueOf(entry.get("role")), content, toolCalls, toolCallId),
                     String.valueOf(entry.get("created_at")), String.valueOf(entry.get("model")), String.valueOf(entry.get("provider"))));
             }
             conversations.put(id, conversation);
@@ -68,8 +77,10 @@ public final class Gateway {
         Map<String, Object> saved = new LinkedHashMap<>();
         for (Conversation conversation : conversations.values()) {
             List<Map<String, Object>> messages = new ArrayList<>();
-            for (StoredMessage entry : conversation.messages) messages.add(Map.of("id", entry.id(), "role", entry.message().role(),
-                "content", entry.message().content(), "created_at", entry.createdAt(), "model", entry.model(), "provider", entry.provider()));
+            for (StoredMessage entry : conversation.messages) {
+                List<Map<String, Object>> toolCalls = entry.message().toolCalls().stream().map(call -> Map.<String, Object>of("id", call.id(), "source_id", call.sourceId(), "name", call.name(), "arguments", call.arguments(), "invalid_arguments", call.invalidArguments())).toList();
+                messages.add(Map.of("id", entry.id(), "role", entry.message().role(), "content", entry.message().content(), "tool_calls", toolCalls, "tool_call_id", entry.message().toolCallId(), "created_at", entry.createdAt(), "model", entry.model(), "provider", entry.provider()));
+            }
             saved.put(conversation.id, Map.of("id", conversation.id, "created_at", conversation.createdAt,
                 "updated_at", conversation.updatedAt, "messages", messages));
         }
@@ -139,14 +150,43 @@ public final class Gateway {
         List<StreamEvent> stream = new ArrayList<>(agentLoop.run(request));
         if (selection.omittedTurns() > 0) stream.add(0, new StreamEvent("context_notice", Map.of("_event_type", "context_notice", "action", "omitted", "omitted_turn_count", selection.omittedTurns(), "message", "Older conversation turns were omitted from this reply's working context.")));
         StringBuilder text = new StringBuilder();
+        List<Map<String, Object>> assistantParts = new ArrayList<>();
+        Map<String, ToolCall> toolCalls = new LinkedHashMap<>();
+        String[] lastMessageId = {""};
         for (int index = 0; index < stream.size(); index++) {
             StreamEvent event = stream.get(index); Map<String, Object> data = new LinkedHashMap<>(event.data());
-            if (event.event().equals("text-delta")) text.append(data.getOrDefault("content", ""));
+            if (event.event().equals("text-delta")) {
+                String value = String.valueOf(data.getOrDefault("content", "")); text.append(value);
+                if (!assistantParts.isEmpty() && "text".equals(assistantParts.get(assistantParts.size() - 1).get("type"))) assistantParts.get(assistantParts.size() - 1).put("text", String.valueOf(assistantParts.get(assistantParts.size() - 1).get("text")) + value);
+                else assistantParts.add(new LinkedHashMap<>(Map.of("type", "text", "text", value)));
+            }
+            if (event.event().equals("tool-call")) {
+                String id = String.valueOf(data.getOrDefault("id", "")), name = String.valueOf(data.getOrDefault("name", "")), sourceId = String.valueOf(data.getOrDefault("source_id", "internal"));
+                Map<String, Object> arguments = new LinkedHashMap<>(); if (data.get("arguments") instanceof Map<?, ?> raw) raw.forEach((key, value) -> arguments.put(String.valueOf(key), value));
+                if (!id.isBlank() && !name.isBlank()) { toolCalls.put(id, new ToolCall(id, sourceId, name, arguments, false)); assistantParts.add(new LinkedHashMap<>(Map.of("type", "tool_call", "id", id, "source_id", sourceId, "name", name, "arguments", arguments))); }
+            }
+            if (event.event().equals("tool-result")) {
+                if (!assistantParts.isEmpty() || !toolCalls.isEmpty()) {
+                    lastMessageId[0] = append(conversation, new Message("assistant", assistantParts, new ArrayList<>(toolCalls.values()), ""), model, provider);
+                    assistantParts.clear(); toolCalls.clear();
+                }
+                String id = String.valueOf(data.getOrDefault("id", ""));
+                if (!id.isBlank()) {
+                    boolean isError = data.get("error") instanceof String value && !value.isBlank(); Object result = isError ? data.get("error") : data.getOrDefault("output", "");
+                    if (!isError && result instanceof String output) { try { result = Json.parse(output); } catch (IllegalArgumentException ignored) { } }
+                    assistantParts.clear();
+                    lastMessageId[0] = append(conversation, new Message("tool", List.of(new LinkedHashMap<>(Map.of("type", "tool_result", "tool_call_id", id, "result", result, "is_error", isError))), List.of(), id));
+                }
+            }
             if (event.event().equals("done")) { data.putIfAbsent("finish_reason", "stop"); }
             data.put("_event_type", event.event()); stream.set(index, new StreamEvent(event.event(), data));
         }
         if (stream.stream().anyMatch(event -> event.event().equals("done"))) {
-            String replyId = append(conversation, new Message("assistant", text.toString()), model, provider);
+            if (!assistantParts.isEmpty() || !toolCalls.isEmpty()) {
+                lastMessageId[0] = append(conversation, new Message("assistant", assistantParts, new ArrayList<>(toolCalls.values()), ""), model, provider);
+                assistantParts.clear(); toolCalls.clear();
+            }
+            String replyId = lastMessageId[0].isBlank() ? append(conversation, new Message("assistant", text.toString()), model, provider) : lastMessageId[0];
             for (int index = 0; index < stream.size(); index++) if (stream.get(index).event().equals("done")) {
                 StreamEvent event = stream.get(index);
                 Map<String, Object> data = new LinkedHashMap<>(event.data());
@@ -187,7 +227,7 @@ public final class Gateway {
             .toList();
         return json(200, Json.stringify(Map.of("conversations", items, "total", matches.size(), "limit", limit, "offset", offset)));
     }
-    private Response detail(String id) { Conversation conversation = conversations.get(id); if (conversation == null) return error(404, "conversation_not_found", "Conversation was not found."); List<Map<String, Object>> messages = conversation.messages.stream().map(stored -> { Map<String, Object> item = new LinkedHashMap<>(); item.put("id", stored.id()); item.put("role", stored.message().role()); item.put("content", stored.message().content()); item.put("created_at", stored.createdAt()); if (stored.message().role().equals("assistant")) { item.put("model", stored.model()); item.put("provider", stored.provider()); } return item; }).toList(); return json(200, Json.stringify(Map.of("id", id, "created_at", conversation.createdAt, "updated_at", conversation.updatedAt, "messages", messages))); }
+    private Response detail(String id) { Conversation conversation = conversations.get(id); if (conversation == null) return error(404, "conversation_not_found", "Conversation was not found."); List<Map<String, Object>> messages = conversation.messages.stream().map(stored -> { Map<String, Object> item = new LinkedHashMap<>(); item.put("id", stored.id()); item.put("role", stored.message().role()); item.put("content", stored.message().content()); item.put("created_at", stored.createdAt()); if (!stored.message().toolCallId().isBlank()) item.put("tool_call_id", stored.message().toolCallId()); if (stored.message().role().equals("assistant")) { item.put("model", stored.model()); item.put("provider", stored.provider()); } return item; }).toList(); return json(200, Json.stringify(Map.of("id", id, "created_at", conversation.createdAt, "updated_at", conversation.updatedAt, "messages", messages))); }
     private static Response json(int status, String body) { return new Response(status, Map.of("Content-Type", "application/json"), body, List.of()); }
     private static Response error(int status, String code, String message) { return json(status, Json.stringify(Map.of("code", code, "message", message))); }
     private static String header(Map<String, String> headers, String name) { return headers.entrySet().stream().filter(entry -> entry.getKey().equalsIgnoreCase(name)).map(Map.Entry::getValue).findFirst().orElse("").trim(); }
